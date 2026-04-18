@@ -3,15 +3,19 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 import os
 import re
+import stripe
 
 app = Flask(__name__)
 
-# 🔐 SECURITY
+# 🔐 CONFIG
 app.secret_key = os.environ.get("SECRET_KEY", "cybershield_secret")
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
-# 🗄️ DATABASE
+# 💳 STRIPE
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+
+# 🗄️ DB
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///saas.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
@@ -23,12 +27,13 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
+    is_pro = db.Column(db.Boolean, default=False)
 
 with app.app_context():
     db.create_all()
 
 # -------------------
-# 🧠 AI PHISHING ENGINE
+# 🧠 AI ENGINE
 # -------------------
 def phishing_ai(text):
     text = text.lower()
@@ -52,7 +57,7 @@ def phishing_ai(text):
 
     if re.search(r"http|https|bit\.ly|tinyurl", text):
         score += 40
-        reasons.append("Lien suspect détecté")
+        reasons.append("Lien suspect")
 
     for word, val in risky_words.items():
         if word in text:
@@ -61,11 +66,11 @@ def phishing_ai(text):
 
     if text.isupper():
         score += 15
-        reasons.append("MAJUSCULES détectées")
+        reasons.append("MAJUSCULES")
 
     if text.count("!") > 2:
         score += 10
-        reasons.append("Excès de ponctuation")
+        reasons.append("Spam !!!")
 
     if re.search(r"\d{4,}", text):
         score += 10
@@ -74,28 +79,75 @@ def phishing_ai(text):
     return min(score, 100), reasons
 
 # -------------------
-# 🏠 HOME (LANDING)
+# HOME
 # -------------------
 @app.route("/")
 def home():
+    return redirect("/pricing")
+
+# -------------------
+# PRICING
+# -------------------
+@app.route("/pricing")
+def pricing():
     return render_template_string("""
-    <body style="margin:0;font-family:Arial;background:#0b1220;color:white;">
+    <body style="margin:0;font-family:Arial;background:#0b1220;color:white;text-align:center;">
 
-    <div style="display:flex;justify-content:space-between;padding:20px;background:#0f172a;">
-        <h2>🛡️ CyberShield AI</h2>
-        <div>
-            <a href="/login" style="color:white;margin-right:10px;">Login</a>
-            <a href="/signup" style="color:white;">Signup</a>
+        <h1 style="margin-top:80px;">💰 CyberShield AI Pricing</h1>
+
+        <div style="display:flex;justify-content:center;margin-top:50px;">
+
+            <div style="background:#111827;padding:20px;margin:10px;border-radius:15px;width:200px;">
+                <h2>Free</h2>
+                <p>Basic scan</p>
+                <a href="/signup" style="color:#4f46e5;">Start</a>
+            </div>
+
+            <div style="background:#111827;padding:20px;margin:10px;border-radius:15px;width:200px;">
+                <h2>Pro</h2>
+                <p>Advanced AI</p>
+                <a href="/checkout" style="padding:10px;background:#4f46e5;color:white;text-decoration:none;border-radius:10px;">Buy 9.99€</a>
+            </div>
+
         </div>
-    </div>
-
-    <div style="text-align:center;margin-top:120px;">
-        <h1 style="font-size:50px;">AI Phishing Protection</h1>
-        <p style="color:#94a3b8;">Detect scams & malicious messages instantly</p>
-        <a href="/signup" style="padding:12px 25px;background:#4f46e5;color:white;text-decoration:none;border-radius:10px;">Start Free</a>
-    </div>
 
     </body>
+    """)
+
+# -------------------
+# CHECKOUT STRIPE
+# -------------------
+@app.route("/checkout")
+def checkout():
+    session_stripe = stripe.checkout.Session.create(
+        payment_method_types=["card"],
+        line_items=[{
+            "price_data": {
+                "currency": "eur",
+                "product_data": {
+                    "name": "CyberShield AI Pro"
+                },
+                "unit_amount": 999,
+            },
+            "quantity": 1,
+        }],
+        mode="payment",
+        success_url="https://your-site.onrender.com/success",
+        cancel_url="https://your-site.onrender.com/pricing",
+    )
+
+    return redirect(session_stripe.url)
+
+# -------------------
+# SUCCESS
+# -------------------
+@app.route("/success")
+def success():
+    return render_template_string("""
+    <h1 style="text-align:center;color:green;margin-top:100px;">
+        🎉 Paiement réussi ! Pro activé
+    </h1>
+    <a href="/dashboard" style="display:block;text-align:center;color:#4f46e5;">Go Dashboard</a>
     """)
 
 # -------------------
@@ -107,18 +159,17 @@ def signup():
         email = request.form.get("email", "").strip()
         password = request.form.get("password", "").strip()
 
-        # 🔐 validation
         if not email or not password:
-            return "<h3 style='color:red;text-align:center'>Email et mot de passe requis</h3>"
+            return "Email et mot de passe requis"
 
         if "@" not in email:
-            return "<h3 style='color:red;text-align:center'>Email invalide</h3>"
+            return "Email invalide"
 
         if len(password) < 6:
-            return "<h3 style='color:red;text-align:center'>Mot de passe trop court (6+)</h3>"
+            return "Mot de passe trop court"
 
         if User.query.filter_by(email=email).first():
-            return "<h3 style='color:red;text-align:center'>Email déjà utilisé</h3>"
+            return "Email déjà utilisé"
 
         db.session.add(User(email=email, password=generate_password_hash(password)))
         db.session.commit()
@@ -127,18 +178,17 @@ def signup():
 
     return render_template_string("""
     <body style="text-align:center;margin-top:100px;background:#0b1220;color:white;">
-        <h1>Signup sécurisé</h1>
-
+        <h1>Signup</h1>
         <form method="POST">
-            <input name="email" placeholder="email"><br><br>
-            <input name="password" type="password" placeholder="password"><br><br>
-            <button>Create account</button>
+            <input name="email"><br><br>
+            <input name="password" type="password"><br><br>
+            <button>Create</button>
         </form>
     </body>
     """)
 
 # -------------------
-# LOGIN (SECURE FIX)
+# LOGIN
 # -------------------
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -146,35 +196,33 @@ def login():
         email = request.form.get("email", "").strip()
         password = request.form.get("password", "").strip()
 
-        # 🔐 validation stricte
         if not email or not password:
-            return "<h3 style='color:red;text-align:center'>Email et mot de passe requis</h3>"
+            return "Champs requis"
 
         user = User.query.filter_by(email=email).first()
 
         if not user:
-            return "<h3 style='color:red;text-align:center'>Utilisateur introuvable</h3>"
+            return "Utilisateur introuvable"
 
         if not check_password_hash(user.password, password):
-            return "<h3 style='color:red;text-align:center'>Mot de passe incorrect</h3>"
+            return "Mot de passe incorrect"
 
         session["user"] = user.email
         return redirect("/dashboard")
 
     return render_template_string("""
     <body style="text-align:center;margin-top:100px;background:#0b1220;color:white;">
-        <h1>Login sécurisé</h1>
-
+        <h1>Login</h1>
         <form method="POST">
-            <input name="email" placeholder="email" required><br><br>
-            <input name="password" type="password" placeholder="password" required><br><br>
+            <input name="email"><br><br>
+            <input name="password" type="password"><br><br>
             <button>Login</button>
         </form>
     </body>
     """)
 
 # -------------------
-# DASHBOARD IA
+# DASHBOARD
 # -------------------
 @app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
@@ -198,25 +246,21 @@ def dashboard():
             verdict = "✅ SAFE"
             color = "green"
 
-        reasons_html = "<br>".join(reasons) if reasons else "Aucun risque détecté"
+        reasons_html = "<br>".join(reasons) if reasons else "Clean"
 
         result = f"""
         <div style="margin-top:20px;padding:20px;background:#111827;border-radius:15px;">
             <h2 style="color:{color}">{verdict}</h2>
             <p>Score IA: <b>{score}/100</b></p>
-            <p style="color:#cbd5e1">{reasons_html}</p>
+            <p>{reasons_html}</p>
         </div>
         """
 
     return render_template_string(f"""
     <body style="margin:0;font-family:Arial;background:#0b1220;color:white;text-align:center;">
 
-        <div style="padding:15px;background:#0f172a;">
-            🛡️ CyberShield AI | {session.get("user")}
-            <a href="/logout" style="color:#6366f1;margin-left:20px;">Logout</a>
-        </div>
-
-        <h1>Dashboard IA</h1>
+        <h1>CyberShield AI Dashboard</h1>
+        <p>User: {session.get("user")}</p>
 
         <form method="POST">
             <textarea name="text" style="width:400px;height:120px;"></textarea><br><br>
@@ -224,6 +268,9 @@ def dashboard():
         </form>
 
         {result}
+
+        <br><br>
+        <a href="/logout" style="color:#4f46e5;">Logout</a>
 
     </body>
     """)
