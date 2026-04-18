@@ -7,7 +7,6 @@ import stripe
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "cybershield_secret")
 
-# Stripe
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
 # DB
@@ -16,26 +15,20 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 # -------------------
-# MODEL
+# MODEL (NOUVELLE TABLE)
 # -------------------
 class User(db.Model):
+    __tablename__ = "users_v2"   # 🔥 CHANGE NOM TABLE
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True)
     password = db.Column(db.String(200))
     is_pro = db.Column(db.Boolean, default=False)
 
 # -------------------
-# 🔥 FIX DB (AJOUT COLONNE SI MANQUANTE)
+# INIT DB
 # -------------------
 with app.app_context():
     db.create_all()
-
-    try:
-        db.session.execute("ALTER TABLE user ADD COLUMN is_pro BOOLEAN DEFAULT 0")
-        db.session.commit()
-        print("Colonne is_pro ajoutée")
-    except:
-        pass  # déjà existante
 
 # -------------------
 # HOME
@@ -98,7 +91,7 @@ def login():
 # -------------------
 # DASHBOARD
 # -------------------
-@app.route("/dashboard", methods=["GET", "POST"])
+@app.route("/dashboard")
 def dashboard():
     if "user" not in session:
         return redirect("/login")
