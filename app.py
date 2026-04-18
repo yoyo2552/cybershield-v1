@@ -15,28 +15,28 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 # 💳 STRIPE
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
-# 🗄️ DATABASE (SAFE SIMPLE SQLITE)
+# 🗄️ DB
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///saas.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 # -------------------
-# USER MODEL (CLEAN)
+# USER MODEL
 # -------------------
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
+    is_pro = db.Column(db.Boolean, default=False)
 
 with app.app_context():
     db.create_all()
 
 # -------------------
-# 🧠 SIMPLE AI PHISHING
+# AI PHISHING
 # -------------------
 def phishing_ai(text):
     text = text.lower()
-
     score = 0
     reasons = []
 
@@ -86,7 +86,7 @@ def home():
 @app.route("/pricing")
 def pricing():
     return render_template_string("""
-    <body style="margin:0;font-family:Arial;background:#0b1220;color:white;text-align:center;">
+    <body style="font-family:Arial;background:#0b1220;color:white;text-align:center;">
 
         <h1 style="margin-top:80px;">🛡️ CyberShield AI</h1>
 
@@ -94,15 +94,15 @@ def pricing():
 
             <div style="background:#111827;padding:20px;margin:10px;border-radius:15px;width:200px;">
                 <h2>Free</h2>
-                <p>Basic scan</p>
+                <p>Basic AI scan</p>
                 <a href="/signup" style="color:#4f46e5;">Start</a>
             </div>
 
             <div style="background:#111827;padding:20px;margin:10px;border-radius:15px;width:200px;">
                 <h2>Pro</h2>
-                <p>AI detection</p>
+                <p>Full AI detection</p>
                 <a href="/checkout" style="padding:10px;background:#4f46e5;color:white;text-decoration:none;border-radius:10px;">
-                    Buy 9.99€
+                    Upgrade 9.99€
                 </a>
             </div>
 
@@ -112,15 +112,12 @@ def pricing():
     """)
 
 # -------------------
-# STRIPE CHECKOUT (SAFE)
+# STRIPE CHECKOUT
 # -------------------
 @app.route("/checkout")
 def checkout():
     try:
         stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
-
-        if not stripe.api_key:
-            return "<h3 style='color:red'>Stripe key missing</h3>"
 
         session_stripe = stripe.checkout.Session.create(
             payment_method_types=["card"],
@@ -145,15 +142,21 @@ def checkout():
         return f"<pre style='color:red'>{str(e)}</pre>"
 
 # -------------------
-# SUCCESS
+# SUCCESS → ACTIVATE PRO
 # -------------------
 @app.route("/success")
 def success():
+    if "user" in session:
+        user = User.query.filter_by(email=session["user"]).first()
+        if user:
+            user.is_pro = True
+            db.session.commit()
+
     return """
     <h1 style="text-align:center;color:green;margin-top:100px;">
-        🎉 Paiement réussi
+        🎉 Pro activé !
     </h1>
-    <a href="/dashboard" style="display:block;text-align:center;">Dashboard</a>
+    <a href="/dashboard" style="display:block;text-align:center;">Go Dashboard</a>
     """
 
 # -------------------
@@ -167,9 +170,6 @@ def signup():
 
         if not email or not password:
             return "Champs requis"
-
-        if "@" not in email:
-            return "Email invalide"
 
         if User.query.filter_by(email=email).first():
             return "Email déjà utilisé"
@@ -194,7 +194,7 @@ def signup():
     """)
 
 # -------------------
-# LOGIN (SAFE FIXED)
+# LOGIN
 # -------------------
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -202,16 +202,10 @@ def login():
         email = request.form.get("email", "").strip()
         password = request.form.get("password", "").strip()
 
-        if not email or not password:
-            return "Champs requis"
-
         user = User.query.filter_by(email=email).first()
 
-        if not user:
-            return "Utilisateur introuvable"
-
-        if not check_password_hash(user.password, password):
-            return "Mot de passe incorrect"
+        if not user or not check_password_hash(user.password, password):
+            return "Login failed"
 
         session["user"] = user.email
         return redirect("/dashboard")
@@ -228,12 +222,14 @@ def login():
     """)
 
 # -------------------
-# DASHBOARD
+# DASHBOARD (FREE / PRO)
 # -------------------
 @app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
     if "user" not in session:
         return redirect("/login")
+
+    user = User.query.filter_by(email=session["user"]).first()
 
     result = ""
 
@@ -241,6 +237,12 @@ def dashboard():
         text = request.form.get("text", "")
 
         score, reasons = phishing_ai(text)
+
+        # 🔥 LIMIT FREE
+        if not user.is_pro:
+            if len(text) > 100:
+                return "<h2 style='color:red'>Free limit: 100 chars max. Upgrade Pro.</h2>"
+            score = min(score, 60)
 
         if score >= 70:
             verdict = "🚨 PHISHING"
@@ -252,21 +254,21 @@ def dashboard():
             verdict = "✅ SAFE"
             color = "green"
 
-        reasons_html = "<br>".join(reasons) if reasons else "Clean"
-
         result = f"""
         <div style="margin-top:20px;padding:20px;background:#111827;border-radius:15px;">
             <h2 style="color:{color}">{verdict}</h2>
             <p>Score: {score}/100</p>
-            <p>{reasons_html}</p>
+            <p>{"<br>".join(reasons)}</p>
         </div>
         """
+
+    plan = "PRO" if user.is_pro else "FREE"
 
     return render_template_string(f"""
     <body style="font-family:Arial;background:#0b1220;color:white;text-align:center;">
 
         <h1>CyberShield Dashboard</h1>
-        <p>{session.get("user")}</p>
+        <p>User: {session["user"]} | Plan: {plan}</p>
 
         <form method="POST">
             <textarea name="text" style="width:400px;height:120px;"></textarea><br><br>
@@ -274,6 +276,9 @@ def dashboard():
         </form>
 
         {result}
+
+        <br><br>
+        <a href="/logout" style="color:#4f46e5;">Logout</a>
 
     </body>
     """)
