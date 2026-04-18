@@ -5,8 +5,9 @@ import os
 import stripe
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "cybershield_secret")
+app.secret_key = os.environ.get("SECRET_KEY")
 
+# Stripe
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
 # DB
@@ -15,18 +16,17 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 # -------------------
-# MODEL (NOUVELLE TABLE)
+# MODEL
 # -------------------
 class User(db.Model):
-    __tablename__ = "users_v2"   # 🔥 CHANGE NOM TABLE
+    __tablename__ = "users_v3"
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True)
     password = db.Column(db.String(200))
     is_pro = db.Column(db.Boolean, default=False)
+    stripe_customer_id = db.Column(db.String(200))
+    subscription_id = db.Column(db.String(200))
 
-# -------------------
-# INIT DB
-# -------------------
 with app.app_context():
     db.create_all()
 
@@ -35,7 +35,24 @@ with app.app_context():
 # -------------------
 @app.route("/")
 def home():
-    return redirect("/signup")
+    return """
+    <h1>🛡️ CyberShield AI</h1>
+    <p>Protection phishing intelligente</p>
+    <a href="/signup">Start Free</a><br><br>
+    <a href="/pricing">Pricing</a>
+    """
+
+# -------------------
+# PRICING
+# -------------------
+@app.route("/pricing")
+def pricing():
+    return """
+    <h1>Pricing</h1>
+    <p>Free: limité</p>
+    <p>Pro: 9€/mois</p>
+    <a href="/checkout">Upgrade Pro</a>
+    """
 
 # -------------------
 # SIGNUP
@@ -43,24 +60,23 @@ def home():
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == "POST":
-        try:
-            email = request.form["email"]
-            password = request.form["password"]
+        email = request.form["email"]
+        password = request.form["password"]
 
-            user = User(email=email, password=generate_password_hash(password))
-            db.session.add(user)
-            db.session.commit()
+        if len(password) < 6:
+            return "Mot de passe trop court"
 
-            return redirect("/login")
+        user = User(email=email, password=generate_password_hash(password))
+        db.session.add(user)
+        db.session.commit()
 
-        except Exception as e:
-            return f"Erreur signup: {str(e)}"
+        return redirect("/login")
 
     return """
     <h1>Signup</h1>
     <form method="POST">
-        <input name="email"><br><br>
-        <input name="password" type="password"><br><br>
+        <input name="email" required><br><br>
+        <input name="password" type="password" required><br><br>
         <button>Create</button>
     </form>
     """
@@ -98,38 +114,34 @@ def dashboard():
 
     user = User.query.filter_by(email=session["user"]).first()
 
+    plan = "PRO" if user.is_pro else "FREE"
+
     return f"""
     <h1>Dashboard</h1>
     <p>{user.email}</p>
-    <p>Plan: {"PRO" if user.is_pro else "FREE"}</p>
+    <p>Plan: {plan}</p>
 
-    <a href="/checkout">Upgrade Pro</a><br><br>
+    <a href="/checkout">Upgrade</a><br><br>
     <a href="/logout">Logout</a>
     """
 
 # -------------------
-# STRIPE
+# CHECKOUT (SUBSCRIPTION)
 # -------------------
 @app.route("/checkout")
 def checkout():
     try:
         session_stripe = stripe.checkout.Session.create(
             payment_method_types=["card"],
+            mode="subscription",
             line_items=[{
-                "price_data": {
-                    "currency": "eur",
-                    "product_data": {"name": "CyberShield Pro"},
-                    "unit_amount": 999,
-                },
+                "price": "price_xxx",  # ⚠️ remplace par ton ID Stripe
                 "quantity": 1,
             }],
-            mode="payment",
             success_url=request.host_url + "success",
-            cancel_url=request.host_url,
+            cancel_url=request.host_url + "pricing",
         )
-
         return redirect(session_stripe.url)
-
     except Exception as e:
         return str(e)
 
@@ -138,12 +150,34 @@ def checkout():
 # -------------------
 @app.route("/success")
 def success():
-    if "user" in session:
-        user = User.query.filter_by(email=session["user"]).first()
-        user.is_pro = True
-        db.session.commit()
+    return "<h1>Paiement réussi</h1><a href='/dashboard'>Dashboard</a>"
 
-    return "<h1>Pro activé</h1><a href='/dashboard'>Dashboard</a>"
+# -------------------
+# WEBHOOK (SECURE)
+# -------------------
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    payload = request.data
+    sig_header = request.headers.get("Stripe-Signature")
+    endpoint_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
+    except:
+        return "Error", 400
+
+    if event["type"] == "checkout.session.completed":
+        session_data = event["data"]["object"]
+
+        email = session_data["customer_details"]["email"]
+
+        user = User.query.filter_by(email=email).first()
+
+        if user:
+            user.is_pro = True
+            db.session.commit()
+
+    return "OK"
 
 # -------------------
 # LOGOUT
