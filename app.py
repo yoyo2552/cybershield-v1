@@ -1,121 +1,48 @@
-from flask import Flask, render_template_string, request, redirect, session
+from flask import Flask, request, redirect, session
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 import os
-import re
 import stripe
 
 app = Flask(__name__)
-
-# 🔐 CONFIG
 app.secret_key = os.environ.get("SECRET_KEY", "cybershield_secret")
 
-# 💳 STRIPE
+# Stripe
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
-# 🗄️ DATABASE
+# DB
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///saas.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 # -------------------
-# USER MODEL
+# MODEL
 # -------------------
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password = db.Column(db.String(200), nullable=False)
+    email = db.Column(db.String(120), unique=True)
+    password = db.Column(db.String(200))
     is_pro = db.Column(db.Boolean, default=False)
 
-# 🔥 RESET DB AUTO (FIX ERREUR is_pro)
+# -------------------
+# 🔥 FIX DB (AJOUT COLONNE SI MANQUANTE)
+# -------------------
 with app.app_context():
+    db.create_all()
+
     try:
-        db.create_all()
+        db.session.execute("ALTER TABLE user ADD COLUMN is_pro BOOLEAN DEFAULT 0")
+        db.session.commit()
+        print("Colonne is_pro ajoutée")
     except:
-        if os.path.exists("saas.db"):
-            os.remove("saas.db")
-        db.create_all()
-
-# -------------------
-# AI PHISHING
-# -------------------
-def phishing_ai(text):
-    text = text.lower()
-    score = 0
-
-    if "http" in text:
-        score += 40
-    if "password" in text:
-        score += 20
-    if "urgent" in text:
-        score += 20
-    if "bank" in text:
-        score += 20
-
-    return min(score, 100)
+        pass  # déjà existante
 
 # -------------------
 # HOME
 # -------------------
 @app.route("/")
 def home():
-    return redirect("/pricing")
-
-# -------------------
-# PRICING
-# -------------------
-@app.route("/pricing")
-def pricing():
-    return """
-    <body style="background:#0b1220;color:white;text-align:center;">
-        <h1>🛡️ CyberShield AI</h1>
-        <p>Détection phishing intelligente</p>
-        <a href="/signup">Free</a><br><br>
-        <a href="/checkout">Pro 9.99€</a>
-    </body>
-    """
-
-# -------------------
-# CHECKOUT STRIPE
-# -------------------
-@app.route("/checkout")
-def checkout():
-    try:
-        session_stripe = stripe.checkout.Session.create(
-            payment_method_types=["card"],
-            line_items=[{
-                "price_data": {
-                    "currency": "eur",
-                    "product_data": {"name": "CyberShield Pro"},
-                    "unit_amount": 999,
-                },
-                "quantity": 1,
-            }],
-            mode="payment",
-            success_url=request.host_url + "success",
-            cancel_url=request.host_url + "pricing",
-        )
-        return redirect(session_stripe.url)
-    except Exception as e:
-        return f"Stripe error: {str(e)}"
-
-# -------------------
-# SUCCESS → ACTIVATE PRO
-# -------------------
-@app.route("/success")
-def success():
-    if "user" in session:
-        user = User.query.filter_by(email=session["user"]).first()
-        if user:
-            user.is_pro = True
-            db.session.commit()
-
-    return """
-    <h1 style="text-align:center;color:green;margin-top:100px;">
-        🎉 Pro activé
-    </h1>
-    <a href="/dashboard" style="display:block;text-align:center;">Dashboard</a>
-    """
+    return redirect("/signup")
 
 # -------------------
 # SIGNUP
@@ -127,10 +54,8 @@ def signup():
             email = request.form["email"]
             password = request.form["password"]
 
-            db.session.add(User(
-                email=email,
-                password=generate_password_hash(password)
-            ))
+            user = User(email=email, password=generate_password_hash(password))
+            db.session.add(user)
             db.session.commit()
 
             return redirect("/login")
@@ -153,17 +78,13 @@ def signup():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        try:
-            user = User.query.filter_by(email=request.form["email"]).first()
+        user = User.query.filter_by(email=request.form["email"]).first()
 
-            if user and check_password_hash(user.password, request.form["password"]):
-                session["user"] = user.email
-                return redirect("/dashboard")
+        if user and check_password_hash(user.password, request.form["password"]):
+            session["user"] = user.email
+            return redirect("/dashboard")
 
-            return "Login failed"
-
-        except Exception as e:
-            return str(e)
+        return "Login failed"
 
     return """
     <h1>Login</h1>
@@ -184,34 +105,52 @@ def dashboard():
 
     user = User.query.filter_by(email=session["user"]).first()
 
-    result = ""
-
-    if request.method == "POST":
-        text = request.form["text"]
-        score = phishing_ai(text)
-
-        # LIMIT FREE
-        if not user.is_pro:
-            score = min(score, 50)
-
-        result = f"<h2>Score: {score}/100</h2>"
-
-    plan = "PRO" if user.is_pro else "FREE"
-
     return f"""
     <h1>Dashboard</h1>
-    <p>{session["user"]} | {plan}</p>
+    <p>{user.email}</p>
+    <p>Plan: {"PRO" if user.is_pro else "FREE"}</p>
 
-    <form method="POST">
-        <textarea name="text"></textarea><br><br>
-        <button>Analyze</button>
-    </form>
-
-    {result}
-
-    <br><br>
+    <a href="/checkout">Upgrade Pro</a><br><br>
     <a href="/logout">Logout</a>
     """
+
+# -------------------
+# STRIPE
+# -------------------
+@app.route("/checkout")
+def checkout():
+    try:
+        session_stripe = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "eur",
+                    "product_data": {"name": "CyberShield Pro"},
+                    "unit_amount": 999,
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            success_url=request.host_url + "success",
+            cancel_url=request.host_url,
+        )
+
+        return redirect(session_stripe.url)
+
+    except Exception as e:
+        return str(e)
+
+# -------------------
+# SUCCESS
+# -------------------
+@app.route("/success")
+def success():
+    if "user" in session:
+        user = User.query.filter_by(email=session["user"]).first()
+        user.is_pro = True
+        db.session.commit()
+
+    return "<h1>Pro activé</h1><a href='/dashboard'>Dashboard</a>"
 
 # -------------------
 # LOGOUT
