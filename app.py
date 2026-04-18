@@ -6,12 +6,12 @@ import re
 
 app = Flask(__name__)
 
-# 🔐 sécurité session
-app.secret_key = "cybershield_secret"
+# 🔐 SECURITY
+app.secret_key = os.environ.get("SECRET_KEY", "cybershield_secret")
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
-# 🗄️ DB
+# 🗄️ DATABASE
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///saas.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
@@ -28,7 +28,7 @@ with app.app_context():
     db.create_all()
 
 # -------------------
-# 🧠 IA PHISHING ENGINE (PRO)
+# 🧠 AI ENGINE (PHISHING SCORE)
 # -------------------
 def phishing_ai(text):
     text = text.lower()
@@ -36,7 +36,6 @@ def phishing_ai(text):
     score = 0
     reasons = []
 
-    # 🔥 mots sensibles phishing
     risky_words = {
         "urgent": 15,
         "password": 20,
@@ -47,39 +46,32 @@ def phishing_ai(text):
         "click": 10,
         "confirm": 15,
         "winner": 20,
-        "free": 10
+        "free": 10,
+        "account": 15
     }
 
-    # 🌐 liens suspects
     if re.search(r"http|https|bit\.ly|tinyurl", text):
         score += 40
         reasons.append("Lien suspect détecté")
 
-    # 📊 mots
     for word, val in risky_words.items():
         if word in text:
             score += val
             reasons.append(f"Mot suspect: {word}")
 
-    # 🚨 majuscules agressives
     if text.isupper():
         score += 15
-        reasons.append("Message en MAJUSCULES")
+        reasons.append("Message en majuscules")
 
-    # ❗ spam ponctuation
     if text.count("!") > 2:
         score += 10
-        reasons.append("Excès de '!'")
+        reasons.append("Excès de ponctuation")
 
-    # 🔢 chiffres suspects
     if re.search(r"\d{4,}", text):
         score += 10
-        reasons.append("Séquence numérique suspecte")
+        reasons.append("Suite numérique suspecte")
 
-    # clamp
-    score = min(score, 100)
-
-    return score, reasons
+    return min(score, 100), reasons
 
 # -------------------
 # HOME
@@ -87,17 +79,15 @@ def phishing_ai(text):
 @app.route("/")
 def home():
     return render_template_string("""
-    <html>
-    <body style="margin:0;font-family:Arial;background:#0f172a;color:white;text-align:center;">
+    <body style="margin:0;font-family:Arial;background:#0b1220;color:white;text-align:center;">
         <div style="margin-top:120px;">
             <h1>🛡️ CyberShield AI</h1>
-            <p>IA de détection phishing nouvelle génération</p>
+            <p>Détection phishing IA nouvelle génération</p>
 
             <a href="/signup" style="padding:10px 20px;background:#6366f1;color:white;text-decoration:none;border-radius:10px;">Signup</a>
             <a href="/login" style="padding:10px 20px;background:#6366f1;color:white;text-decoration:none;border-radius:10px;">Login</a>
         </div>
     </body>
-    </html>
     """)
 
 # -------------------
@@ -118,12 +108,12 @@ def signup():
         return redirect("/login")
 
     return render_template_string("""
-    <body style="text-align:center;margin-top:100px;background:#0f172a;color:white;">
+    <body style="text-align:center;margin-top:100px;background:#0b1220;color:white;">
         <h1>Signup</h1>
         <form method="POST">
             <input name="email" placeholder="email"><br><br>
             <input name="password" type="password" placeholder="password"><br><br>
-            <button>Créer compte</button>
+            <button>Create account</button>
         </form>
     </body>
     """)
@@ -146,7 +136,7 @@ def login():
         return "<h3 style='color:red;text-align:center'>Login failed</h3>"
 
     return render_template_string("""
-    <body style="text-align:center;margin-top:100px;background:#0f172a;color:white;">
+    <body style="text-align:center;margin-top:100px;background:#0b1220;color:white;">
         <h1>Login</h1>
         <form method="POST">
             <input name="email"><br><br>
@@ -157,7 +147,7 @@ def login():
     """)
 
 # -------------------
-# DASHBOARD (IA PRO)
+# DASHBOARD PRO (IA)
 # -------------------
 @app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
@@ -173,40 +163,50 @@ def dashboard():
 
         if score >= 70:
             verdict = "🚨 PHISHING ÉLEVÉ"
-            color = "red"
+            color = "#ef4444"
         elif score >= 40:
             verdict = "⚠️ SUSPECT"
-            color = "orange"
+            color = "#f59e0b"
         else:
             verdict = "✅ SAFE"
-            color = "green"
+            color = "#22c55e"
 
-        reasons_html = "<br>".join(reasons) if reasons else "Aucun signal suspect"
+        reasons_html = "<br>".join(reasons) if reasons else "Aucun signal détecté"
 
         result_html = f"""
-        <div style="margin-top:20px;padding:20px;background:#111827;border-radius:12px;display:inline-block;">
+        <div style="margin-top:25px;padding:20px;background:#111827;border-radius:16px;max-width:500px;margin:auto;">
             <h2 style="color:{color}">{verdict}</h2>
-            <p>Score IA: <b>{score}/100</b></p>
-            <hr>
-            <p style="color:#cbd5e1">{reasons_html}</p>
+            <p>Score IA : <b>{score}/100</b></p>
+            <hr style="border:1px solid #1f2937;">
+            <p style="color:#cbd5e1;text-align:left">{reasons_html}</p>
         </div>
         """
 
     return render_template_string(f"""
-    <body style="text-align:center;margin-top:80px;background:#0f172a;color:white;font-family:Arial;">
+    <body style="margin:0;font-family:Arial;background:#0b1220;color:white;">
 
-        <h1>CyberShield AI Dashboard</h1>
-        <p>Bienvenue {session.get("user")}</p>
+        <div style="padding:15px 30px;background:#0f172a;display:flex;justify-content:space-between;">
+            <h2>🛡️ CyberShield AI</h2>
+            <div>
+                {session.get("user")}
+                <a href="/logout" style="margin-left:15px;color:#6366f1;">Logout</a>
+            </div>
+        </div>
 
-        <form method="POST">
-            <textarea name="text" placeholder="Colle un message suspect..." style="width:300px;height:120px;"></textarea><br><br>
-            <button>Analyser IA</button>
-        </form>
+        <div style="text-align:center;margin-top:60px;">
+            <h1>Dashboard IA</h1>
 
-        {result_html}
+            <form method="POST">
+                <textarea name="text" placeholder="Analyse un message suspect..."
+                    style="width:400px;height:140px;padding:10px;border-radius:10px;"></textarea><br><br>
 
-        <br><br>
-        <a href="/logout" style="color:#6366f1;">Logout</a>
+                <button style="padding:12px 25px;background:#4f46e5;color:white;border:none;border-radius:10px;">
+                    Analyser IA
+                </button>
+            </form>
+
+            {result_html}
+        </div>
 
     </body>
     """)
