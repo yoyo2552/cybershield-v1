@@ -15,25 +15,24 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 # 💳 STRIPE
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
-# 🗄️ DB
+# 🗄️ DATABASE (SAFE SIMPLE SQLITE)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///saas.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 # -------------------
-# USER MODEL
+# USER MODEL (CLEAN)
 # -------------------
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
-    is_pro = db.Column(db.Boolean, default=False)
 
 with app.app_context():
     db.create_all()
 
 # -------------------
-# 🧠 AI ENGINE
+# 🧠 SIMPLE AI PHISHING
 # -------------------
 def phishing_ai(text):
     text = text.lower()
@@ -41,7 +40,7 @@ def phishing_ai(text):
     score = 0
     reasons = []
 
-    risky_words = {
+    keywords = {
         "urgent": 15,
         "password": 20,
         "bank": 20,
@@ -59,22 +58,18 @@ def phishing_ai(text):
         score += 40
         reasons.append("Lien suspect")
 
-    for word, val in risky_words.items():
-        if word in text:
-            score += val
-            reasons.append(f"Mot suspect: {word}")
+    for k, v in keywords.items():
+        if k in text:
+            score += v
+            reasons.append(f"Mot suspect: {k}")
 
     if text.isupper():
-        score += 15
+        score += 10
         reasons.append("MAJUSCULES")
 
     if text.count("!") > 2:
         score += 10
         reasons.append("Spam !!!")
-
-    if re.search(r"\d{4,}", text):
-        score += 10
-        reasons.append("Chiffres suspects")
 
     return min(score, 100), reasons
 
@@ -93,7 +88,7 @@ def pricing():
     return render_template_string("""
     <body style="margin:0;font-family:Arial;background:#0b1220;color:white;text-align:center;">
 
-        <h1 style="margin-top:80px;">💰 CyberShield AI Pricing</h1>
+        <h1 style="margin-top:80px;">🛡️ CyberShield AI</h1>
 
         <div style="display:flex;justify-content:center;margin-top:50px;">
 
@@ -105,8 +100,10 @@ def pricing():
 
             <div style="background:#111827;padding:20px;margin:10px;border-radius:15px;width:200px;">
                 <h2>Pro</h2>
-                <p>Advanced AI</p>
-                <a href="/checkout" style="padding:10px;background:#4f46e5;color:white;text-decoration:none;border-radius:10px;">Buy 9.99€</a>
+                <p>AI detection</p>
+                <a href="/checkout" style="padding:10px;background:#4f46e5;color:white;text-decoration:none;border-radius:10px;">
+                    Buy 9.99€
+                </a>
             </div>
 
         </div>
@@ -115,40 +112,49 @@ def pricing():
     """)
 
 # -------------------
-# CHECKOUT STRIPE
+# STRIPE CHECKOUT (SAFE)
 # -------------------
 @app.route("/checkout")
 def checkout():
-    session_stripe = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        line_items=[{
-            "price_data": {
-                "currency": "eur",
-                "product_data": {
-                    "name": "CyberShield AI Pro"
-                },
-                "unit_amount": 999,
-            },
-            "quantity": 1,
-        }],
-        mode="payment",
-        success_url="https://your-site.onrender.com/success",
-        cancel_url="https://your-site.onrender.com/pricing",
-    )
+    try:
+        stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
-    return redirect(session_stripe.url)
+        if not stripe.api_key:
+            return "<h3 style='color:red'>Stripe key missing</h3>"
+
+        session_stripe = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "eur",
+                    "product_data": {
+                        "name": "CyberShield AI Pro"
+                    },
+                    "unit_amount": 999,
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            success_url=request.host_url + "success",
+            cancel_url=request.host_url + "pricing",
+        )
+
+        return redirect(session_stripe.url)
+
+    except Exception as e:
+        return f"<pre style='color:red'>{str(e)}</pre>"
 
 # -------------------
 # SUCCESS
 # -------------------
 @app.route("/success")
 def success():
-    return render_template_string("""
+    return """
     <h1 style="text-align:center;color:green;margin-top:100px;">
-        🎉 Paiement réussi ! Pro activé
+        🎉 Paiement réussi
     </h1>
-    <a href="/dashboard" style="display:block;text-align:center;color:#4f46e5;">Go Dashboard</a>
-    """)
+    <a href="/dashboard" style="display:block;text-align:center;">Dashboard</a>
+    """
 
 # -------------------
 # SIGNUP
@@ -160,18 +166,18 @@ def signup():
         password = request.form.get("password", "").strip()
 
         if not email or not password:
-            return "Email et mot de passe requis"
+            return "Champs requis"
 
         if "@" not in email:
             return "Email invalide"
 
-        if len(password) < 6:
-            return "Mot de passe trop court"
-
         if User.query.filter_by(email=email).first():
             return "Email déjà utilisé"
 
-        db.session.add(User(email=email, password=generate_password_hash(password)))
+        db.session.add(User(
+            email=email,
+            password=generate_password_hash(password)
+        ))
         db.session.commit()
 
         return redirect("/login")
@@ -188,7 +194,7 @@ def signup():
     """)
 
 # -------------------
-# LOGIN
+# LOGIN (SAFE FIXED)
 # -------------------
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -251,26 +257,23 @@ def dashboard():
         result = f"""
         <div style="margin-top:20px;padding:20px;background:#111827;border-radius:15px;">
             <h2 style="color:{color}">{verdict}</h2>
-            <p>Score IA: <b>{score}/100</b></p>
+            <p>Score: {score}/100</p>
             <p>{reasons_html}</p>
         </div>
         """
 
     return render_template_string(f"""
-    <body style="margin:0;font-family:Arial;background:#0b1220;color:white;text-align:center;">
+    <body style="font-family:Arial;background:#0b1220;color:white;text-align:center;">
 
-        <h1>CyberShield AI Dashboard</h1>
-        <p>User: {session.get("user")}</p>
+        <h1>CyberShield Dashboard</h1>
+        <p>{session.get("user")}</p>
 
         <form method="POST">
             <textarea name="text" style="width:400px;height:120px;"></textarea><br><br>
-            <button style="padding:10px 20px;background:#4f46e5;color:white;">Analyze</button>
+            <button>Analyze</button>
         </form>
 
         {result}
-
-        <br><br>
-        <a href="/logout" style="color:#4f46e5;">Logout</a>
 
     </body>
     """)
