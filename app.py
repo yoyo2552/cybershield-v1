@@ -124,31 +124,6 @@ def signup():
 # -------------------
 # LOGIN
 # -------------------
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        email = request.form["email"]
-        password = request.form["password"]
-
-        user = User.query.filter_by(email=email).first()
-
-        if user and check_password_hash(user.password, password):
-            login_user(user)
-            return redirect("/dashboard")
-
-        return "Login failed"
-
-    return """
-    <form method='POST'>
-        <input name='email'>
-        <input name='password' type='password'>
-        <button>Login</button>
-    </form>
-    """
-
-# -------------------
-# DASHBOARD
-# -------------------
 @app.route("/dashboard", methods=["GET", "POST"])
 @login_required
 def dashboard():
@@ -169,30 +144,54 @@ def dashboard():
         result = (score, verdict)
 
     return f"""
+    <html>
+    <head>
+    <style>
+    body{{
+        font-family:Arial;
+        background:#0f172a;
+        color:white;
+        text-align:center;
+    }}
+    textarea{{
+        width:80%;
+        height:120px;
+        border-radius:10px;
+        padding:10px;
+    }}
+    button{{
+        padding:10px 20px;
+        background:#22c55e;
+        border:none;
+        border-radius:10px;
+        color:white;
+        margin-top:10px;
+    }}
+    .card{{
+        background:#1e293b;
+        margin:20px auto;
+        padding:20px;
+        border-radius:15px;
+        width:70%;
+    }}
+    </style>
+    </head>
+
+    <body>
+
     <h1>Dashboard</h1>
 
     <form method="POST">
-        <textarea name="text"></textarea>
+        <textarea name="text" placeholder="Colle un message suspect..."></textarea><br>
         <button>Analyser</button>
     </form>
 
-    <p>{result if result else ""}</p>
+    {"<div class='card'><h2>" + str(result[1]) + " - Score: " + str(result[0]) + "</h2></div>" if result else ""}
 
-    <a href="/logout">Logout</a>
+    <div class="card">
+        <a href="/logout" style="color:red;">Logout</a>
+    </div>
+
+    </body>
+    </html>
     """
-
-# -------------------
-# LOGOUT
-# -------------------
-@app.route("/logout")
-@login_required
-def logout():
-    logout_user()
-    return redirect("/")
-
-# -------------------
-# RUN
-# -------------------
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
