@@ -13,7 +13,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "cybershield_secret")
 # 💳 STRIPE
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
-# 🗄️ DB CONFIG
+# 🗄️ DATABASE
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///saas.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
@@ -27,12 +27,11 @@ class User(db.Model):
     password = db.Column(db.String(200), nullable=False)
     is_pro = db.Column(db.Boolean, default=False)
 
-# 🔥 FIX AUTO DB (évite crash)
+# 🔥 RESET DB AUTO (FIX ERREUR is_pro)
 with app.app_context():
     try:
         db.create_all()
-    except Exception as e:
-        print("DB ERROR → RESET")
+    except:
         if os.path.exists("saas.db"):
             os.remove("saas.db")
         db.create_all()
@@ -69,14 +68,15 @@ def home():
 def pricing():
     return """
     <body style="background:#0b1220;color:white;text-align:center;">
-        <h1>CyberShield AI</h1>
+        <h1>🛡️ CyberShield AI</h1>
+        <p>Détection phishing intelligente</p>
         <a href="/signup">Free</a><br><br>
         <a href="/checkout">Pro 9.99€</a>
     </body>
     """
 
 # -------------------
-# CHECKOUT
+# CHECKOUT STRIPE
 # -------------------
 @app.route("/checkout")
 def checkout():
@@ -97,10 +97,10 @@ def checkout():
         )
         return redirect(session_stripe.url)
     except Exception as e:
-        return str(e)
+        return f"Stripe error: {str(e)}"
 
 # -------------------
-# SUCCESS
+# SUCCESS → ACTIVATE PRO
 # -------------------
 @app.route("/success")
 def success():
@@ -110,7 +110,12 @@ def success():
             user.is_pro = True
             db.session.commit()
 
-    return "<h1>Pro activé</h1><a href='/dashboard'>Dashboard</a>"
+    return """
+    <h1 style="text-align:center;color:green;margin-top:100px;">
+        🎉 Pro activé
+    </h1>
+    <a href="/dashboard" style="display:block;text-align:center;">Dashboard</a>
+    """
 
 # -------------------
 # SIGNUP
@@ -185,6 +190,7 @@ def dashboard():
         text = request.form["text"]
         score = phishing_ai(text)
 
+        # LIMIT FREE
         if not user.is_pro:
             score = min(score, 50)
 
@@ -202,6 +208,9 @@ def dashboard():
     </form>
 
     {result}
+
+    <br><br>
+    <a href="/logout">Logout</a>
     """
 
 # -------------------
