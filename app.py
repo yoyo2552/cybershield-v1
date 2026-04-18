@@ -1,45 +1,86 @@
 from flask import Flask, request, redirect
-from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = "cybershield_key"
+app.secret_key = "cybershield_secret"
 
 # -------------------
-# DATABASE (simple & stable)
+# SIMPLE STORAGE (sans DB compliquée pour éviter bugs Render)
 # -------------------
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///data.db"
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-
-db = SQLAlchemy(app)
+users = []
 
 # -------------------
-# MODELS
-# -------------------
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(120), unique=True)
-    password = db.Column(db.String(200))
-
-# -------------------
-# CREATE DB
-# -------------------
-with app.app_context():
-    db.create_all()
-
-# -------------------
-# HOME
+# HOME (STYLE PRO)
 # -------------------
 @app.route("/")
 def home():
     return """
     <html>
-    <body style="font-family:Arial;text-align:center;margin-top:100px;">
-        <h1>🛡️ CyberShield AI</h1>
-        <p>Détection de messages suspects</p>
+    <head>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial;
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            color: white;
+            text-align: center;
+        }
 
-        <a href="/signup">Signup</a> |
+        .container {
+            margin-top: 120px;
+        }
+
+        h1 {
+            font-size: 50px;
+        }
+
+        p {
+            color: #cbd5e1;
+            font-size: 18px;
+        }
+
+        a {
+            display: inline-block;
+            margin: 10px;
+            padding: 12px 20px;
+            background: #6366f1;
+            color: white;
+            text-decoration: none;
+            border-radius: 10px;
+        }
+
+        a:hover {
+            background: #4f46e5;
+        }
+
+        .card {
+            margin-top: 40px;
+            background: rgba(255,255,255,0.05);
+            padding: 20px;
+            border-radius: 15px;
+            width: 60%;
+            margin-left: auto;
+            margin-right: auto;
+        }
+    </style>
+    </head>
+
+    <body>
+
+    <div class="container">
+        <h1>🛡️ CyberShield AI</h1>
+        <p>Détecte les messages suspects en 2 secondes</p>
+
+        <a href="/signup">Signup</a>
         <a href="/login">Login</a>
+
+        <div class="card">
+            <p>✔ Analyse rapide</p>
+            <p>✔ Détection phishing</p>
+            <p>✔ Interface moderne</p>
+        </div>
+    </div>
+
     </body>
     </html>
     """
@@ -53,19 +94,14 @@ def signup():
         email = request.form["email"]
         password = generate_password_hash(request.form["password"])
 
-        if User.query.filter_by(email=email).first():
-            return "Email déjà utilisé"
-
-        user = User(email=email, password=password)
-        db.session.add(user)
-        db.session.commit()
+        users.append({"email": email, "password": password})
 
         return redirect("/login")
 
     return """
-    <form method="POST">
-        <input name="email" placeholder="email"><br>
-        <input name="password" type="password" placeholder="password"><br>
+    <form method="POST" style="text-align:center;margin-top:100px;">
+        <input name="email" placeholder="email"><br><br>
+        <input name="password" type="password" placeholder="password"><br><br>
         <button>Signup</button>
     </form>
     """
@@ -79,17 +115,16 @@ def login():
         email = request.form["email"]
         password = request.form["password"]
 
-        user = User.query.filter_by(email=email).first()
-
-        if user and check_password_hash(user.password, password):
-            return redirect("/dashboard")
+        for u in users:
+            if u["email"] == email and check_password_hash(u["password"], password):
+                return redirect("/dashboard")
 
         return "Login failed"
 
     return """
-    <form method="POST">
-        <input name="email"><br>
-        <input name="password" type="password"><br>
+    <form method="POST" style="text-align:center;margin-top:100px;">
+        <input name="email"><br><br>
+        <input name="password" type="password"><br><br>
         <button>Login</button>
     </form>
     """
@@ -104,9 +139,11 @@ def dashboard():
     if request.method == "POST":
         text = request.form["text"]
 
-        score = 50 if "http" in text else 10
+        score = 80 if "http" in text.lower() else 20
 
-        if score > 40:
+        if score > 60:
+            verdict = "🚨 PHISHING"
+        elif score > 30:
             verdict = "⚠️ SUSPECT"
         else:
             verdict = "✅ SAFE"
@@ -114,20 +151,29 @@ def dashboard():
         result = f"<h2>{verdict} - Score {score}</h2>"
 
     return f"""
+    <html>
+    <body style="font-family:Arial;text-align:center;margin-top:80px;background:#0f172a;color:white;">
+
     <h1>Dashboard CyberShield</h1>
 
     <form method="POST">
-        <textarea name="text" placeholder="message"></textarea><br>
+        <textarea name="text" style="width:300px;height:100px;"></textarea><br><br>
         <button>Analyser</button>
     </form>
 
     {result}
 
-    <br><a href="/">Home</a>
+    <br><br>
+    <a href="/" style="color:#6366f1;">Home</a>
+
+    </body>
+    </html>
     """
 
 # -------------------
-# RUN (IMPORTANT RENDER)
+# RUN (RENDER SAFE)
 # -------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    import os
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
